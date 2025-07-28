@@ -209,11 +209,7 @@ namespace clau {
 						void* ptr = block->data + block->offset;
 						void* aligned_ptr = ptr;
 
-						if (block->offset < 0 && remain >= size) {
-							block->offset += size;
-							return reinterpret_cast<T*>(aligned_ptr);
-						}
-						else if (block->offset >= 0 && std::align(alignof(T), size, aligned_ptr, remain)) {
+						if (std::align(alignof(T), size, aligned_ptr, remain)) {
 							size_t aligned_offset = static_cast<uint8_t*>(aligned_ptr) - block->data;
 
 							block->offset = aligned_offset + size;
