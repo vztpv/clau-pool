@@ -152,6 +152,14 @@ namespace clau {
 			rear[0] = head[0];
 
 			now_pool = this;
+
+			// chk..
+			while (next) {
+				Arena* temp = next->next;
+				next->next = nullptr;
+				delete next;
+				next = temp;
+			}
 			next = nullptr;
 		}
 
@@ -264,6 +272,8 @@ namespace clau {
 			if (this != now_pool) {
 				return;
 			}
+
+			RemoveBlocks();
 
 			while (next) {
 				Arena* temp = next->next;
@@ -433,14 +443,6 @@ namespace clau {
 				result.m_size = size() - start_idx;
 				this->m_capacity = start_idx; // ?
 				this->m_size = start_idx;
-			}
-			else if (start_idx < size()) {
-				for (uint64_t i = start_idx; i < size(); ++i) {
-					result.push_back(std::move(this->m_arr[i]));
-				}
-				for (uint64_t i = m_size; i > start_idx; --i) {
-					this->pop_back();
-				}
 			}
 
 			return result;
