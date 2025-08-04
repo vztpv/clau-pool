@@ -1,10 +1,8 @@
-﻿#pragma once
-
-#include <iostream>
+﻿
 #include <vector>
+#include <iostream>
 
 namespace clau {
-
 	// todo - smartpointer? std::unique<Block> ?
 	template <class Block>
 	class BlockManager { // manager for not using?
@@ -62,7 +60,6 @@ namespace clau {
 				block = next;
 				//unt++;
 			}	//d::cout << "count1 " << count << " \n";
-
 		}
 	};
 
@@ -97,19 +94,19 @@ namespace clau {
 		const uint64_t defaultBlockSize;
 		Arena* now_pool;
 		Arena* next;
+		uint64_t count = 0;
 	public:
-		static const uint64_t initialSize = 4 * 1024 * 1024; //
+		static const uint64_t initialSize = 1024 * 1024; //
 
-		Block* GetFirstBlock() { return head[0]; } // removal?
-
+	private:
 		BlockManager<Block> blockManager;
 		std::vector<Block*> startBlockVec;
 		std::vector<Block*> lastBlockVec;
 
-
+	private:
 		void RemoveBlocks() {
 			{
-				Reset();
+				Clear();
 				std::vector<BlockManager<Block>> result = DivideBlock();
 				for (auto& x : result) {
 					x.RemoveBlocks();
@@ -126,6 +123,42 @@ namespace clau {
 				//unt++;
 			}
 			//d::cout << "count2 " << count << " \n";
+		}
+	public:
+
+		void Clear() {
+			if (lastBlockVec.empty()) {
+				if (blockManager.last_block) {
+					blockManager.last_block->next = head[0];
+				}
+				else {
+					blockManager.start_block = head[0];
+				}
+				if (!blockManager.start_block) {
+					blockManager.start_block = head[0];
+				}
+
+				blockManager.last_block = rear[0];
+				if (blockManager.last_block) {
+					blockManager.last_block->next = nullptr;
+				}
+
+				head[0] = blockManager.Get(defaultBlockSize);
+				rear[0] = head[0];
+
+				now_pool = this;
+				// chk! memory leak.-fix
+				while (next) {
+					Arena* temp = next->next;
+					next->next = nullptr;
+					delete next;
+					next = temp;
+				}
+				next = nullptr;
+			}
+			else {
+				Reset();
+			}
 		}
 
 		// link_from -> Reset -> DivideBlock -> link_from...
@@ -152,8 +185,7 @@ namespace clau {
 			rear[0] = head[0];
 
 			now_pool = this;
-
-			// chk..
+			// chk! memory leak.-fix
 			while (next) {
 				Arena* temp = next->next;
 				next->next = nullptr;
@@ -183,7 +215,7 @@ namespace clau {
 			return blocks;
 		}
 	public:
-		Arena() : defaultBlockSize(initialSize), blockManager(nullptr, nullptr) {
+		Arena(uint64_t size = initialSize) : defaultBlockSize(size), blockManager(nullptr, nullptr) {
 			for (int i = 0; i < 1; ++i) { // i < 4
 				head[i] = blockManager.Get(defaultBlockSize);
 				rear[i] = head[i];
@@ -191,8 +223,8 @@ namespace clau {
 			now_pool = this;
 			next = nullptr;
 		}
-		Arena(Block* start_block, Block* last_block)
-			: defaultBlockSize(initialSize), blockManager(start_block, last_block) {
+		Arena(Block* start_block, Block* last_block, uint64_t size = initialSize)
+			: defaultBlockSize(size), blockManager(start_block, last_block) {
 			for (int i = 0; i < 1; ++i) { // i < 4
 				head[i] = blockManager.Get(defaultBlockSize); // (new (std::nothrow) Block(initialSize));
 				rear[i] = head[i];
@@ -217,7 +249,11 @@ namespace clau {
 						void* ptr = block->data + block->offset;
 						void* aligned_ptr = ptr;
 
-						if (std::align(alignof(T), size, aligned_ptr, remain)) {
+						if (block->offset < 0 && remain >= size) {
+							block->offset += size;
+							return reinterpret_cast<T*>(aligned_ptr);
+						}
+						else if (block->offset >= 0 && std::align(alignof(T), size, aligned_ptr, remain)) {
 							size_t aligned_offset = static_cast<uint8_t*>(aligned_ptr) - block->data;
 
 							block->offset = aligned_offset + size;
@@ -235,6 +271,7 @@ namespace clau {
 			if (!newBlock) {
 				return nullptr;
 			}
+			//counter++;
 
 			uint64_t remain = newBlock->capacity - newBlock->offset;
 			void* ptr = newBlock->data + newBlock->offset;
@@ -258,7 +295,24 @@ namespace clau {
 		// expand
 		template <class T>
 		void deallocate(T* ptr, uint64_t len) {
+
+
 			return;
+
+			//return;
+
+			// chk !
+			Block* block = now_pool->head[0];
+
+			while (block) {
+				if ((uint8_t*)(ptr)+sizeof(T) * len == (uint8_t*)(block->data) + block->offset) {
+					block->offset = (uint8_t*)ptr - (uint8_t*)block->data;
+					//std::cout << "real_deallocated\n"; //
+					return;
+				}
+
+				block = block->next;
+			}
 		}
 
 		template<typename T, typename... Args>
@@ -325,7 +379,6 @@ namespace clau {
 		}
 	};
 
-	// T has nothing in ~T (T`s destructor)
 	template <class T>
 	class Vector2 {
 	private:
@@ -334,6 +387,15 @@ namespace clau {
 		uint32_t m_capacity = 0;
 		uint32_t m_size = 0;
 	public:
+		// =delete?
+		Vector2() : pool(nullptr) {
+			//
+		}
+		Vector2(uint64_t sz) : pool(nullptr) {
+			m_size = sz;
+			m_capacity = 2 * sz;
+			m_arr = new T[m_capacity]();
+		}
 		// with Arena..
 		Vector2(Arena* pool, uint64_t sz) : pool(pool) {
 			m_size = sz;
@@ -347,6 +409,7 @@ namespace clau {
 			}
 			else {
 				std::cout << "pool is nullptr\n"; // chk?
+				m_arr = new T[m_capacity]();
 			}
 		}
 		Vector2(Arena* pool, uint64_t sz, uint64_t capacity) : pool(pool) {
@@ -361,11 +424,12 @@ namespace clau {
 				//}
 			}
 			else {
-				std::cout << "pool is nullptr\n"; // chk?
+				m_arr = new T[m_capacity]();
 			}
 		}
 		~Vector2() {
-			if (pool && m_arr) {
+			if (m_arr && !pool) { delete[] m_arr; }
+			else if (m_arr) {
 				//for (uint64_t i = 0; i < m_size; ++i) {
 				//	m_arr[i].~T();
 				//}
@@ -380,6 +444,9 @@ namespace clau {
 				this->pool = other.pool;
 				if (pool) {
 					this->m_arr = (T*)pool->allocate<T>(sizeof(T) * other.m_capacity, alignof(T));
+				}
+				else {
+					this->m_arr = new T[other.m_capacity]();
 				}
 				//this->m_arr = new T[other.m_capacity];
 				this->m_capacity = other.m_capacity;
@@ -400,11 +467,20 @@ namespace clau {
 			if (this == &other) { return *this; }
 
 			if (other.m_arr) {
-				if (this->pool && this->m_arr) {
+				if (this->m_arr && !this->pool) {
+					delete[] this->m_arr; this->m_arr = nullptr;
+				}
+				else if (this->m_arr) {
+					for (uint64_t i = 0; i < m_size; ++i) {
+						m_arr[i].~T();
+					}
 					this->pool->deallocate(this->m_arr, this->m_capacity);
 				}
 				if (this->pool) {
 					this->m_arr = pool->allocate<T>(sizeof(T) * other.m_capacity, alignof(T));
+				}
+				else {
+					this->m_arr = new T[other.m_capacity]();
 				}
 				this->m_capacity = other.m_capacity;
 				this->m_size = other.m_size;
@@ -413,7 +489,11 @@ namespace clau {
 				}
 			}
 			else {
-				if (this->pool && m_arr) {
+				if (m_arr && !this->pool) { delete[] m_arr; }
+				else if (m_arr) {
+					for (uint64_t i = 0; i < m_size; ++i) {
+						m_arr[i].~T();
+					}
 					this->pool->deallocate(this->m_arr, this->m_capacity);
 				}
 				m_arr = nullptr;
@@ -431,6 +511,10 @@ namespace clau {
 			std::swap(pool, other.pool);
 		}
 	public:
+		Arena* get_pool() { return pool; }
+
+	public:
+
 		// rename...! // [start_idx ~ size())
 		[[nodiscard]]
 		Vector2<T> Divide(uint64_t start_idx) {
@@ -443,6 +527,14 @@ namespace clau {
 				result.m_size = size() - start_idx;
 				this->m_capacity = start_idx; // ?
 				this->m_size = start_idx;
+			}
+			else if (start_idx < size()) {
+				for (uint64_t i = start_idx; i < size(); ++i) {
+					result.push_back(std::move(this->m_arr[i]));
+				}
+				for (uint64_t i = m_size; i > start_idx; --i) {
+					this->pop_back();
+				}
 			}
 
 			return result;
@@ -535,6 +627,7 @@ namespace clau {
 			if (pool) {
 				T* temp = (T*)pool->allocate<T>(sizeof(T) * new_capacity);
 				for (uint64_t i = 0; i < m_size; ++i) {
+					//new (temp + i) T();
 					new (temp + i) T(std::move(m_arr[i]));
 				}
 
@@ -544,6 +637,17 @@ namespace clau {
 				if (temp != m_arr) {
 					pool->deallocate<T>(m_arr, m_capacity);
 				}
+				m_arr = temp;
+			}
+			else {
+				T* temp = new (std::nothrow) T[new_capacity]();
+				if (m_arr) {
+					for (uint64_t i = 0; i < m_size; ++i) {
+						temp[i] = std::move(m_arr[i]);
+					}
+					delete[] m_arr;
+				}
+
 				m_arr = temp;
 			}
 			m_capacity = new_capacity;
