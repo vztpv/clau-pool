@@ -44,7 +44,7 @@ namespace clau {
 			return new(std::nothrow)Block(cap);
 		}
 	public:
-		BlockManager(Block* start_block, Block* last_block) : start_block(start_block), last_block(last_block) {
+		BlockManager(Block* start_block = nullptr, Block* last_block = nullptr) : start_block(start_block), last_block(last_block) {
 			if (last_block) {
 				last_block->next = nullptr;
 			}
@@ -89,32 +89,32 @@ namespace clau {
 			Block& operator=(const Block&) = delete;
 		};
 	public:
-		Block* head[1];
-		Block* rear[1];
+		Block* head[2];
+		Block* rear[2];
 		const uint64_t defaultBlockSize;
 		Arena* now_pool;
 		Arena* next;
 		uint64_t count = 0;
 	public:
-		static const uint64_t initialSize = 1024 * 1024; //
+		static const uint64_t initialSize = 1024 * 1024; // 4 * 1024?
 
 	private:
-		BlockManager<Block> blockManager;
-		std::vector<Block*> startBlockVec;
-		std::vector<Block*> lastBlockVec;
+		BlockManager<Block> blockManager[2];
+		std::vector<Block*> startBlockVec[2];
+		std::vector<Block*> lastBlockVec[2];
 
 	private:
-		void RemoveBlocks() {
+		void RemoveBlocks(int no) {
 			{
-				Clear();
-				std::vector<BlockManager<Block>> result = DivideBlock();
+				Clear(no);
+				std::vector<BlockManager<Block>> result = DivideBlock(no);
 				for (auto& x : result) {
 					x.RemoveBlocks();
 				}
 			}
 
-			blockManager.RemoveBlocks();
-			Block* block = head[0];
+			blockManager[no].RemoveBlocks();
+			Block* block = head[no];
 			//t count = 0;
 			while (block) {
 				Block* next = block->next;
@@ -124,66 +124,83 @@ namespace clau {
 			}
 			//d::cout << "count2 " << count << " \n";
 		}
-	public:
 
-		void Clear() {
-			if (lastBlockVec.empty()) {
-				if (blockManager.last_block) {
-					blockManager.last_block->next = head[0];
+		void Clear(int no) {
+			if (lastBlockVec[no].empty()) {
+				if (blockManager[no].last_block) {
+					blockManager[no].last_block->next = head[no];
 				}
 				else {
-					blockManager.start_block = head[0];
+					blockManager[no].start_block = head[no];
 				}
-				if (!blockManager.start_block) {
-					blockManager.start_block = head[0];
-				}
-
-				blockManager.last_block = rear[0];
-				if (blockManager.last_block) {
-					blockManager.last_block->next = nullptr;
+				if (!blockManager[no].start_block) {
+					blockManager[no].start_block = head[no];
 				}
 
-				head[0] = blockManager.Get(defaultBlockSize);
-				rear[0] = head[0];
-
-				now_pool = this;
-				// chk! memory leak.-fix
-				while (next) {
-					Arena* temp = next->next;
-					next->next = nullptr;
-					delete next;
-					next = temp;
+				blockManager[no].last_block = rear[no];
+				if (blockManager[no].last_block) {
+					blockManager[no].last_block->next = nullptr;
 				}
-				next = nullptr;
+
+				head[no] = blockManager[no].Get(defaultBlockSize);
+				rear[no] = head[no];
 			}
 			else {
-				Reset();
+				Reset(no);
 			}
 		}
 
 		// link_from -> Reset -> DivideBlock -> link_from...
-		void Reset() {
-			if (lastBlockVec.empty()) {
+		void Reset(int no) {
+			if (lastBlockVec[no].empty()) {
 				return;
 			}
-			if (blockManager.last_block) {
-				blockManager.last_block->next = head[0];
+			if (blockManager[no].last_block) {
+				blockManager[no].last_block->next = head[no];
 			}
 			else {
-				blockManager.start_block = head[0];
+				blockManager[no].start_block = head[no];
 			}
-			if (!blockManager.start_block) {
-				blockManager.start_block = head[0];
-			}
-
-			blockManager.last_block = lastBlockVec[0];
-			if (blockManager.last_block) {
-				blockManager.last_block->next = nullptr;
+			if (!blockManager[no].start_block) {
+				blockManager[no].start_block = head[no];
 			}
 
-			head[0] = blockManager.Get(defaultBlockSize);
-			rear[0] = head[0];
+			blockManager[no].last_block = lastBlockVec[no][0];
+			if (blockManager[no].last_block) {
+				blockManager[no].last_block->next = nullptr;
+			}
 
+			head[no] = blockManager[no].Get(defaultBlockSize);
+			rear[no] = head[no];
+		}
+
+		std::vector<BlockManager<Block>> DivideBlock(int no) {
+			if (lastBlockVec[no].empty()) { return {}; }
+			lastBlockVec[no].push_back(nullptr);
+
+			blockManager[no].last_block = lastBlockVec[no][0];
+			if (blockManager[no].last_block) {
+				blockManager[no].last_block->next = nullptr;
+			}
+
+			std::vector<BlockManager<Block>> blocks;
+			for (uint64_t i = 1; i < lastBlockVec[no].size(); ++i) {
+				blocks.push_back({ startBlockVec[no][i - 1], lastBlockVec[no][i] });
+			}
+
+			startBlockVec[no].clear();
+			lastBlockVec[no].clear();
+
+			return blocks;
+		}
+	public:
+		void RemoveBlocks() {
+			RemoveBlocks(0);
+			RemoveBlocks(1);
+		}
+		void Clear() {
+			Clear(0);
+			Clear(1);
 			now_pool = this;
 			// chk! memory leak.-fix
 			while (next) {
@@ -194,39 +211,43 @@ namespace clau {
 			}
 			next = nullptr;
 		}
-
-		std::vector<BlockManager<Block>> DivideBlock() {
-			if (lastBlockVec.empty()) { return {}; }
-			lastBlockVec.push_back(nullptr);
-
-			blockManager.last_block = lastBlockVec[0];
-			if (blockManager.last_block) {
-				blockManager.last_block->next = nullptr;
+		void Reset() {
+			Reset(0);
+			Reset(1);
+			//now_pool = this;
+			// chk! memory leak.-fix
+			while (next) {
+				Arena* temp = next->next;
+				next->next = nullptr;
+				delete next;
+				next = temp;
 			}
-
-			std::vector<BlockManager<Block>> blocks;
-			for (uint64_t i = 1; i < lastBlockVec.size(); ++i) {
-				blocks.push_back({ startBlockVec[i - 1], lastBlockVec[i] });
-			}
-
-			startBlockVec.clear();
-			lastBlockVec.clear();
-
-			return blocks;
+			next = nullptr;
 		}
+		std::vector<std::vector<BlockManager<Block>>> DivideBlock() {
+			std::vector<std::vector<BlockManager<Block>>> result;
+			result.push_back(DivideBlock(0));
+			result.push_back(DivideBlock(1));
+			return result;
+		}
+
 	public:
-		Arena(uint64_t size = initialSize) : defaultBlockSize(size), blockManager(nullptr, nullptr) {
-			for (int i = 0; i < 1; ++i) { // i < 4
-				head[i] = blockManager.Get(defaultBlockSize);
+		Arena(uint64_t size = initialSize) : defaultBlockSize(size) {
+			for (int i = 0; i < 2; ++i) { // i == 0 4k, i == 1  > 4k
+				blockManager[i] = BlockManager<Block>(nullptr, nullptr);
+				head[i] = blockManager[i].Get(defaultBlockSize);
 				rear[i] = head[i];
 			}
 			now_pool = this;
 			next = nullptr;
 		}
-		Arena(Block* start_block, Block* last_block, uint64_t size = initialSize)
-			: defaultBlockSize(size), blockManager(start_block, last_block) {
-			for (int i = 0; i < 1; ++i) { // i < 4
-				head[i] = blockManager.Get(defaultBlockSize); // (new (std::nothrow) Block(initialSize));
+		Arena(Block* start_block0, Block* last_block0, Block* start_block1, Block* last_block1, uint64_t size = initialSize)
+			: defaultBlockSize(size) {
+			blockManager[0] = BlockManager<Block>(start_block0, last_block0);
+			blockManager[1] = BlockManager<Block>(start_block1, last_block1);
+
+			for (int i = 0; i < 2; ++i) { // i < 2
+				head[i] = blockManager[i].Get(defaultBlockSize); // (new (std::nothrow) Block(initialSize));
 				rear[i] = head[i];
 			}
 			now_pool = this;
@@ -236,24 +257,25 @@ namespace clau {
 		Arena(const Arena&) = delete;
 		Arena& operator=(const Arena&) = delete;
 
+		static int64_t counter;
 	public:
 		template <class T>
 		T* allocate(uint64_t size, uint64_t align = alignof(T)) {
 			{
-				Block* block = now_pool->head[0];
+				int no = 0;
+				if (size + 64 >= defaultBlockSize) {
+					no = 1;
+				}
+				Block* block = now_pool->head[no];
 
-				if (block) {
+				while (block) {
 					if (block->offset + size < block->capacity) {
 						uint64_t remain = block->capacity - block->offset;
 
 						void* ptr = block->data + block->offset;
 						void* aligned_ptr = ptr;
 
-						if (block->offset < 0 && remain >= size) {
-							block->offset += size;
-							return reinterpret_cast<T*>(aligned_ptr);
-						}
-						else if (block->offset >= 0 && std::align(alignof(T), size, aligned_ptr, remain)) {
+						if (std::align(alignof(T), size, aligned_ptr, remain)) {
 							size_t aligned_offset = static_cast<uint8_t*>(aligned_ptr) - block->data;
 
 							block->offset = aligned_offset + size;
@@ -262,16 +284,24 @@ namespace clau {
 						}
 					}
 					block = block->next;
+
+					break;
 				}
 			}
 
 			// allocate new block
 			uint64_t newCap = std::max(defaultBlockSize, size + 64);
-			Block* newBlock = blockManager.Get(newCap); // new (std::nothrow) Block(newCap);
+			int no = 0;
+			if (newCap == size + 64) {
+				no = 1;
+			}
+			Block* newBlock = blockManager[no].Get(newCap); // new (std::nothrow) Block(newCap);
 			if (!newBlock) {
 				return nullptr;
 			}
-			//counter++;
+			if (newCap == size + 64) { // chk over size?
+				counter++;
+			}
 
 			uint64_t remain = newBlock->capacity - newBlock->offset;
 			void* ptr = newBlock->data + newBlock->offset;
@@ -282,9 +312,9 @@ namespace clau {
 
 				newBlock->offset = aligned_offset + size;
 
-				newBlock->next = now_pool->head[0];
+				newBlock->next = now_pool->head[no];
 
-				now_pool->head[0] = newBlock;
+				now_pool->head[no] = newBlock;
 
 				return reinterpret_cast<T*>(aligned_ptr);
 			}
@@ -339,40 +369,42 @@ namespace clau {
 
 		// chk! when merge?
 		void link_from(Arena* other) {
-			for (int i = 0; i < 1; ++i) { // i < 1
+			for (int i = 0; i < 2; ++i) { // i < 1
 				if (!this->head[i]) {
 					this->head[i] = other->head[i];
 					this->rear[i] = other->rear[i];
 				}
 				else {
-					this->startBlockVec.push_back(other->head[i]);
-					this->lastBlockVec.push_back(this->rear[i]);
+					this->startBlockVec[i].push_back(other->head[i]);
+					this->lastBlockVec[i].push_back(this->rear[i]);
 
 					this->rear[i]->next = other->head[i];
 					this->rear[i] = other->rear[i];
 				}
 			}
 
-			if (this->blockManager.last_block) {
-				this->blockManager.last_block->next = other->blockManager.start_block;
-			}
-			else {
-				this->blockManager.start_block = other->blockManager.start_block;
-			}
-			if (!this->blockManager.start_block) {
-				this->blockManager.start_block = other->blockManager.start_block;
-			}
-			this->blockManager.last_block = other->blockManager.last_block;
+			for (int no = 0; no < 2; ++no) {
+				if (this->blockManager[no].last_block) {
+					this->blockManager[no].last_block->next = other->blockManager[no].start_block;
+				}
+				else {
+					this->blockManager[no].start_block = other->blockManager[no].start_block;
+				}
+				if (!this->blockManager[no].start_block) {
+					this->blockManager[no].start_block = other->blockManager[no].start_block;
+				}
+				this->blockManager[no].last_block = other->blockManager[no].last_block;
 
-			other->blockManager.start_block = nullptr;
-			other->blockManager.last_block = nullptr;
+				other->blockManager[no].start_block = nullptr;
+				other->blockManager[no].last_block = nullptr;
+			}
 
 			other->now_pool = this->now_pool;
 
 			other->next = this->next;
 			this->next = other;
 
-			for (int i = 0; i < 1; ++i) {
+			for (int i = 0; i < 2; ++i) {
 				other->head[i] = nullptr;
 				other->rear[i] = nullptr;
 			}
@@ -656,4 +688,5 @@ namespace clau {
 
 	template <class T>
 	using my_vector = Vector2<T>;
+
 }

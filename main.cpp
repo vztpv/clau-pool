@@ -2,7 +2,7 @@
 #include "clau_pool.h"
 #include <iostream>
 
-
+int64_t clau::Arena::counter = 0;
 
 int main(void)
 {
@@ -24,8 +24,8 @@ int main(void)
 	}
 	std::cout << "\n";
 	
-	main_pool->Clear();
-	auto block_manager = main_pool->DivideBlock();
+	//main_pool->Clear();
+	//auto block_manager = main_pool->DivideBlock();
 	// blockManager <- now, free-list?
 	// linked list + Index?
 	
